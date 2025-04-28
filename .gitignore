@@ -1,0 +1,54 @@
+# Arquivos e pastas do Python
+
+# Ambientes Virtuais (Virtual Environments)
+# Nunca adicione o conteúdo do seu ambiente virtual ao Git!
+venv/
+env/
+.venv/
+.env/
+*/venv/
+*/env/
+*/.venv/
+*/.env/
+
+# Cache de Bytecode do Python e arquivos otimizados
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Arquivos de distribuição/empacotamento
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Arquivos de configuração específicos do IDE/Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Arquivos de Sistema Operacional
+.DS_Store # macOS
+Thumbs.db # Windows
+
+# Arquivos de ambiente (Environment variables)
+# Contém segredos e configurações locais - NUNCA adicione ao Git!
+.env
+*.env
+
+# Banco de dados local (exemplo com SQLite)
+# Geralmente não se versiona o banco de dados de desenvolvimento
+db.sqlite3
+*.sqlite
+*.sqlite3
+
+# Arquivos de log
+*.log
+
+# Arquivos de dependências (se não usar venv corretamente, mas é raro precisar)
+# node_modules/ # Exemplo se usar ferramentas JS
+
+# Arquivos de cobertura de teste
+.coverage
+htmlcov/
