@@ -52,3 +52,5 @@ db.sqlite3
 # Arquivos de cobertura de teste
 .coverage
 htmlcov/
+
+lista_comandos.txt
