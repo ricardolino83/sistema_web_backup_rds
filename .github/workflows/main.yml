@@ -65,7 +65,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           # Substitua pelo ARN da Role que confia no OIDC do GitHub Actions
-          role-to-assume: arn:aws:iam::SEU_ACCOUNT_ID:role/SEU_ROLE_CI_CD_TERRAFORM
+          role-to-assume: arn:aws:iam::575108956536:role/GitHubActions-SistemaWebBackupRDS-Role
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Terraform Init
