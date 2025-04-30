@@ -91,4 +91,5 @@ Thumbs.db
 htmlcov/
 
 # Arquivos específicos do projeto (REVISE SE REALMENTE PRECISA IGNORAR)
-# lista_comandos.txt
+lista_comandos.txt
+test_s3.py

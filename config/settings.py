@@ -26,10 +26,11 @@ load_dotenv(BASE_DIR / '.env') # Carrega as variáveis
 #SECRET_KEY = 'django-insecure-q4useq7l^d^xi$a&k_scp@q46h)&g!nyvml^=bx9tl839b$dz_'
 
 SECRET_KEY = os.getenv('SECRET_KEY')
+S3_BUCKET_NAME = os.getenv('S3_BUCKET_NAME')
 AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
 AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+AWS_SESSION_TOKEN = os.getenv('AWS_SESSION_TOKEN')
 AWS_S3_REGION_NAME = os.getenv('AWS_S3_REGION_NAME')
-S3_BUCKET_NAME = os.getenv('S3_BUCKET_NAME')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
