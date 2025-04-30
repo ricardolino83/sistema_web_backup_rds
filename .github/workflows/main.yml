@@ -1,61 +1,58 @@
-# Nome do Workflow que aparecerá na aba Actions do GitHub
-name: Deploy Terraform Infrastructure
+# Nome do Workflow
+name: Deploy Terraform Infrastructure via OIDC
 
-# Controla quando o workflow será executado
+# Gatilho
 on:
   push:
     branches:
-      - main # Executa somente em push para a branch 'main'
-  # workflow_dispatch: # Descomente esta linha se quiser acionar manualmente também
+      - main
+  # workflow_dispatch:
 
-# Define os jobs que o workflow executará
+# Permissões necessárias para o Job obter o token OIDC e ler o conteúdo
+permissions:
+  id-token: write # Necessário para solicitar o token OIDC do GitHub
+  contents: read  # Necessário para fazer o checkout do código
+
 jobs:
   terraform:
-    name: 'Terraform Apply'
-    runs-on: ubuntu-latest # Usa um runner Linux padrão do GitHub
+    name: 'Terraform Apply using OIDC'
+    runs-on: ubuntu-latest
 
-    # Passos executados sequencialmente
     steps:
-      # 1. Baixa o código do repositório para o runner
+      # 1. Checkout do código
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Configura as credenciais da AWS
-      #    Você PRECISA configurar os Secrets 'AWS_ACCESS_KEY_ID' e 'AWS_SECRET_ACCESS_KEY'
-      #    nas configurações do seu repositório GitHub (Settings > Secrets and variables > Actions)
-      - name: Configure AWS Credentials
+      # 2. Configura as credenciais AWS usando OIDC
+      #    Substitua 'arn:aws:iam::SEU_ACCOUNT_ID:role/SEU_GITHUB_ACTIONS_ROLE_NAME'
+      #    pelo ARN da Role que você criou na AWS para este workflow.
+      - name: Configure AWS Credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
           aws-region: sa-east-1 # Sua região AWS
+          role-session-name: GitHubActions-${{ github.run_id }}
 
-      # 3. Instala o Terraform CLI
-      #    Você pode especificar uma versão exata se precisar
+      # 3. Setup do Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
-        # with:
-        #   terraform_version: 1.8.0 # Exemplo: Fixar versão
 
-      # 4. Inicializa o Terraform (baixa provedores)
+      # 4. Terraform Init
       - name: Terraform Init
         id: init
         run: terraform init
 
-      # 5. Valida a configuração Terraform (verifica sintaxe)
+      # 5. Terraform Validate
       - name: Terraform Validate
         id: validate
         run: terraform validate -no-color
 
-      # 6. Gera o plano de execução Terraform
+      # 6. Terraform Plan
       - name: Terraform Plan
         id: plan
         run: terraform plan -no-color
-        # continue-on-error: true # Descomente se quiser que o workflow continue mesmo se o plan falhar (não recomendado para apply direto)
 
-      # 7. Aplica a configuração Terraform
-      #    O '-auto-approve' aplica automaticamente SEM pedir confirmação.
-      #    Use com CUIDADO, especialmente na branch 'main'.
+      # 7. Terraform Apply (com auto-approve)
       - name: Terraform Apply
         id: apply
         run: terraform apply -auto-approve -input=false
