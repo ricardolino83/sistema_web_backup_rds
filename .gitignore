@@ -1,7 +1,7 @@
 # Arquivos e pastas do Python
+# ==========================
 
-# Ambientes Virtuais (Virtual Environments)
-# Nunca adicione o conteúdo do seu ambiente virtual ao Git!
+# Ambientes Virtuais
 venv/
 env/
 .venv/
@@ -11,17 +11,64 @@ env/
 */.venv/
 */.env/
 
-# Cache de Bytecode do Python e arquivos otimizados
+# Cache de Bytecode e Otimizados
 __pycache__/
 *.py[cod]
 *$py.class
 
-# Arquivos de distribuição/empacotamento
+# Distribuição / Empacotamento
 build/
 dist/
 *.egg-info/
 *.egg
 
+# Django
+# ========
+# Banco de dados local
+db.sqlite3
+*.sqlite
+*.sqlite3
+
+# Arquivos Estáticos Coletados (Ajuste 'staticfiles' se seu STATIC_ROOT for diferente)
+staticfiles/
+
+# Arquivos de Mídia (Se houver uploads de usuário)
+# media/
+
+
+# Terraform
+# ==========
+# Arquivos de estado local (Ignore se não usar backend remoto S3)
+*.tfstate
+*.tfstate.backup
+
+# Arquivos de log de crash
+crash.log
+crash.*.log
+
+# Arquivos .tfvars (geralmente contêm segredos/configs de ambiente)
+*.tfvars
+*.tfvars.json
+
+# Arquivos de override
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Arquivos de plano do Terraform
+terraform.tfplan
+*.tfplan
+
+# Diretório do Terraform com plugins e módulos
+.terraform/
+
+# Arquivo de bloqueio de dependência - DEVE SER versionado
+# !.terraform.lock.hcl # Comentado pois o padrão é não ignorar, mas para clareza
+
+
+# Outros
+# =======
 # Arquivos de configuração específicos do IDE/Editor
 .vscode/
 .idea/
@@ -29,28 +76,19 @@ dist/
 *.swo
 
 # Arquivos de Sistema Operacional
-.DS_Store # macOS
-Thumbs.db # Windows
+.DS_Store
+Thumbs.db
 
-# Arquivos de ambiente (Environment variables)
-# Contém segredos e configurações locais - NUNCA adicione ao Git!
+# Arquivos de ambiente (SECRETS!)
 .env
 *.env
 
-# Banco de dados local (exemplo com SQLite)
-# Geralmente não se versiona o banco de dados de desenvolvimento
-db.sqlite3
-*.sqlite
-*.sqlite3
-
-# Arquivos de log
+# Arquivos de log genéricos
 *.log
-
-# Arquivos de dependências (se não usar venv corretamente, mas é raro precisar)
-# node_modules/ # Exemplo se usar ferramentas JS
 
 # Arquivos de cobertura de teste
 .coverage
 htmlcov/
 
-lista_comandos.txt
+# Arquivos específicos do projeto (REVISE SE REALMENTE PRECISA IGNORAR)
+# lista_comandos.txt
