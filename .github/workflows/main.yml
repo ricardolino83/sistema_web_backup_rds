@@ -82,7 +82,7 @@ jobs:
         id: plan
         run: terraform plan -no-color -out=tfplan
         # Continue mesmo se o plano não gerar mudanças (necessário para apply)
-        continue-on-error: true
+        #continue-on-error: true
 
       - name: Show Terraform Plan Status
         run: echo "Status do Terraform Plan ${{ steps.plan.outcome }}"
