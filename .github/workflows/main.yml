@@ -114,7 +114,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           # Substitua pelo ARN da Role que permite o deploy (pode ser a mesma do TF ou outra)
-          role-to-assume: arn:aws:iam::SEU_ACCOUNT_ID:role/SEU_ROLE_CI_CD_DEPLOY
+          role-to-assume: arn:aws:iam::575108956536:role/GitHubActions-SistemaWebBackupRDS-Role
           aws-region: ${{ env.AWS_REGION }}
 
       # --- Método 1: Usando AWS Systems Manager Run Command (Preferido) ---
