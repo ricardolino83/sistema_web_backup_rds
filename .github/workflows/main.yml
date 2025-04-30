@@ -1,0 +1,171 @@
+# .github/workflows/main.yml
+
+name: Deploy Django App and Infra to AWS
+
+# Gatilho: Rodar este workflow sempre que houver push na branch 'main'
+on:
+  push:
+    branches: [ main ]
+  # pull_request: # Descomente se quiser rodar em Pull Requests (ex: só terraform plan)
+  #   branches: [ main ]
+
+# Permissões necessárias para autenticação OIDC com a AWS IAM
+permissions:
+  id-token: write # Permite que a Action obtenha um OIDC token
+  contents: read  # Permite que a Action faça checkout do código
+
+# Variáveis de ambiente globais para o workflow (opcional)
+env:
+  AWS_REGION: "us-east-1" # Substitua pela sua região AWS padrão
+  TF_VERSION: "1.8.3"     # Versão específica do Terraform a ser usada
+  PYTHON_VERSION: "3.11"  # Versão do Python a ser usada
+
+jobs:
+  # --- Job Opcional: Lint & Test ---
+  lint_and_test:
+    name: Lint & Test Django App
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt # Assumindo que você tem requirements.txt
+          pip install flake8 # Exemplo de linter
+
+      # - name: Lint with Flake8 # Descomente para adicionar linting
+      #   run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      # - name: Run Django Tests # Descomente se tiver testes configurados
+      #   run: python manage.py test
+
+  # --- Job: Gerenciar Infraestrutura com Terraform ---
+  terraform:
+    name: Terraform Plan & Apply
+    # needs: lint_and_test # Descomente se quiser rodar testes antes
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform ${{ env.TF_VERSION }}
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS Credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # Substitua pelo ARN da Role que confia no OIDC do GitHub Actions
+          role-to-assume: arn:aws:iam::SEU_ACCOUNT_ID:role/SEU_ROLE_CI_CD_TERRAFORM
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Init
+        id: init
+        # Assumindo backend S3 configurado no seu código Terraform (.tf)
+        # Se não, você pode passar a configuração aqui com -backend-config="..."
+        run: terraform init
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -no-color -out=tfplan
+        # Continue mesmo se o plano não gerar mudanças (necessário para apply)
+        continue-on-error: true
+
+      - name: Show Terraform Plan Status
+        run: echo "Status do Terraform Plan ${{ steps.plan.outcome }}"
+
+      # --- Apply só deve rodar se o Plan foi bem sucedido (ou não gerou mudanças) ---
+      # Adicionar uma condição ou job separado com aprovação manual para produção
+      - name: Terraform Apply
+        # if: steps.plan.outcome == 'success' || steps.plan.outcome == 'neutral' # Ajuste conforme necessidade
+        run: terraform apply -auto-approve tfplan
+
+      # --- Capturar Outputs do Terraform (Exemplo: ID da Instância EC2) ---
+      # (Você precisa definir 'ec2_instance_id' como output no seu terraform)
+      # - name: Get Terraform Outputs
+      #   id: outputs
+      #   run: |
+      #     echo "ec2_instance_id=$(terraform output -raw ec2_instance_id)" >> $GITHUB_OUTPUT
+
+  # --- Job: Fazer Deploy da Aplicação Django ---
+  deploy_django:
+    name: Deploy Django Application
+    needs: terraform # Garante que a infraestrutura foi aplicada/está pronta
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # Substitua pelo ARN da Role que permite o deploy (pode ser a mesma do TF ou outra)
+          role-to-assume: arn:aws:iam::SEU_ACCOUNT_ID:role/SEU_ROLE_CI_CD_DEPLOY
+          aws-region: ${{ env.AWS_REGION }}
+
+      # --- Método 1: Usando AWS Systems Manager Run Command (Preferido) ---
+      - name: Execute Deploy Script via SSM Run Command
+        uses: aws-actions/aws-ssm-send-command@v1
+        with:
+          # Substitua pelo ID da instância EC2 (pode vir do output do Terraform job)
+          # instance-ids: ${{ needs.terraform.outputs.ec2_instance_id }} # Exemplo se capturou output
+          instance-ids: "i-xxxxxxxxxxxxxxxxx" # Ou coloque o ID diretamente se for fixo
+          # Nome do documento SSM para rodar scripts shell
+          document-name: "AWS-RunShellScript"
+          # Comandos a serem executados na instância EC2
+          # Idealmente, chame um script que já está na instância:
+          # command: "sudo /opt/deploy/deploy_app.sh"
+          # Ou coloque os comandos diretamente (menos recomendado):
+          command: |
+            set -e # Para sair em caso de erro
+            echo "Iniciando deploy..."
+            cd /home/ec2-user/sistema_web_backup_rds # Ajuste o caminho
+            echo "Pulando git pull por enquanto (código já está do checkout)..."
+            # git pull origin main # Habilitar se o código não for o mais recente
+            echo "Ativando ambiente virtual..."
+            source venv/bin/activate
+            echo "Instalando dependências..."
+            pip install -r requirements.txt
+            echo "Rodando migrações..."
+            python manage.py migrate --noinput
+            echo "Coletando arquivos estáticos..."
+            python manage.py collectstatic --noinput
+            echo "Reiniciando serviços..."
+            sudo systemctl restart gunicorn # Substitua 'gunicorn' pelo nome do seu serviço WSGI
+            sudo systemctl restart nginx
+            echo "Deploy concluído!"
+          comment: "Deploy da aplicação Django via GitHub Actions"
+          # Tempo limite para o comando
+          timeout-seconds: '300'
+
+      # --- Método 2: Usando SSH (Alternativa - requer segredos) ---
+      # - name: Deploy to EC2 via SSH
+      #   uses: appleboy/ssh-action@v1.0.3
+      #   with:
+      #     host: ${{ secrets.EC2_HOST }} # IP/DNS do EC2 como Secret
+      #     username: ${{ secrets.EC2_USERNAME }} # Usuário do EC2 como Secret (ex: ec2-user)
+      #     key: ${{ secrets.EC2_SSH_PRIVATE_KEY }} # Chave privada SSH como Secret
+      #     script: |
+      #       set -e
+      #       cd /home/ec2-user/sistema_web_backup_rds # Ajuste o caminho
+      #       git pull origin main
+      #       source venv/bin/activate
+      #       pip install -r requirements.txt
+      #       python manage.py migrate --noinput
+      #       python manage.py collectstatic --noinput
+      #       sudo systemctl restart gunicorn # Substitua 'gunicorn' pelo nome do seu serviço WSGI
+      #       sudo systemctl restart nginx
