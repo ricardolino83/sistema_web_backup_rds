@@ -1,181 +1,61 @@
-# .github/workflows/main.yml
+# Nome do Workflow que aparecerá na aba Actions do GitHub
+name: Deploy Terraform Infrastructure
 
-name: Deploy Django App and Infra to AWS
-
-# Gatilho: Rodar este workflow sempre que houver push na branch 'main'
+# Controla quando o workflow será executado
 on:
   push:
-    branches: [ main ]
-  # pull_request: # Descomente se quiser rodar em Pull Requests (ex: só terraform plan)
-  #   branches: [ main ]
+    branches:
+      - main # Executa somente em push para a branch 'main'
+  # workflow_dispatch: # Descomente esta linha se quiser acionar manualmente também
 
-# Permissões necessárias para autenticação OIDC com a AWS IAM
-permissions:
-  id-token: write # Permite que a Action obtenha um OIDC token
-  contents: read  # Permite que a Action faça checkout do código
-
-# Variáveis de ambiente globais para o workflow (opcional)
-env:
-  AWS_REGION: "sa-east-1" # AJUSTADO para sua região preferida
-  TF_VERSION: "1.8.3"     # Versão específica do Terraform a ser usada
-  PYTHON_VERSION: "3.11"  # Versão do Python a ser usada
-
+# Define os jobs que o workflow executará
 jobs:
-  # --- Job Opcional: Lint & Test ---
-  # lint_and_test: # Comentado por enquanto para focar no deploy
-    # name: Lint & Test Django App
-    # runs-on: ubuntu-latest
-    # steps:
-    #   - name: Checkout code
-    #     uses: actions/checkout@v4
-
-    #   - name: Setup Python ${{ env.PYTHON_VERSION }}
-    #     uses: actions/setup-python@v5
-    #     with:
-    #       python-version: ${{ env.PYTHON_VERSION }}
-
-    #   - name: Install Dependencies
-    #     run: |
-    #       python -m pip install --upgrade pip
-    #       # Certifique-se que requirements.txt existe e está atualizado
-    #       if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-    #       pip install flake8
-
-    #   # - name: Lint with Flake8
-    #   #   run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-
-    #   # - name: Run Django Tests
-    #   #   run: python manage.py test
-
-  # --- Job: Gerenciar Infraestrutura com Terraform ---
   terraform:
-    name: Terraform Plan & Apply
-    # needs: lint_and_test # Dependência comentada pois o job acima está comentado
-    runs-on: ubuntu-latest
+    name: 'Terraform Apply'
+    runs-on: ubuntu-latest # Usa um runner Linux padrão do GitHub
 
-    outputs: # Definindo outputs para passar para o próximo job
-      tf_plan_outcome: ${{ steps.plan.outcome }}
-      # ec2_instance_id: ${{ steps.outputs.outputs.ec2_instance_id }} # Se capturar o output do TF
-
+    # Passos executados sequencialmente
     steps:
+      # 1. Baixa o código do repositório para o runner
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Terraform ${{ env.TF_VERSION }}
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Configure AWS Credentials using OIDC
+      # 2. Configura as credenciais da AWS
+      #    Você PRECISA configurar os Secrets 'AWS_ACCESS_KEY_ID' e 'AWS_SECRET_ACCESS_KEY'
+      #    nas configurações do seu repositório GitHub (Settings > Secrets and variables > Actions)
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          #### Substitua pelo ARN da Role que confia no OIDC do GitHub Actions ####
-          #### ATENÇÃO: Verifique se este ARN e a Role/Permissões estão corretos! ####
-          role-to-assume: arn:aws:iam::575108956536:role/GitHubActions-SistemaWebBackupRDS-Role
-          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: sa-east-1 # Sua região AWS
 
+      # 3. Instala o Terraform CLI
+      #    Você pode especificar uma versão exata se precisar
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        # with:
+        #   terraform_version: 1.8.0 # Exemplo: Fixar versão
+
+      # 4. Inicializa o Terraform (baixa provedores)
       - name: Terraform Init
         id: init
         run: terraform init
-        working-directory: ./terraform # <<< ADICIONADO working-directory
 
+      # 5. Valida a configuração Terraform (verifica sintaxe)
       - name: Terraform Validate
         id: validate
         run: terraform validate -no-color
-        working-directory: ./terraform # <<< ADICIONADO working-directory
 
+      # 6. Gera o plano de execução Terraform
       - name: Terraform Plan
         id: plan
-        run: terraform plan -no-color -out=tfplan
-        working-directory: ./terraform # <<< ADICIONADO working-directory
-        # continue-on-error: true # <<< REMOVIDO/COMENTADO para parar em caso de erro no plan
+        run: terraform plan -no-color
+        # continue-on-error: true # Descomente se quiser que o workflow continue mesmo se o plan falhar (não recomendado para apply direto)
 
-      - name: Show Terraform Plan Status
-        if: always() # Executa mesmo se o passo anterior falhar (útil para debug)
-        run: echo "Status do Terraform Plan ${{ steps.plan.outcome }}"
-
-      # Só aplica se o plano foi bem-sucedido
+      # 7. Aplica a configuração Terraform
+      #    O '-auto-approve' aplica automaticamente SEM pedir confirmação.
+      #    Use com CUIDADO, especialmente na branch 'main'.
       - name: Terraform Apply
-        if: steps.plan.outcome == 'success' # Garante que só roda se o plan funcionou
-        run: terraform apply -auto-approve tfplan
-        working-directory: ./terraform # <<< ADICIONADO working-directory
-
-      # --- Capturar Outputs do Terraform (Exemplo: ID da Instância EC2) ---
-      # Descomente e ajuste se precisar passar o ID da instância para o próximo job
-      # Você também precisa definir 'output "instance_id" { ... }' no seu outputs.tf
-      # - name: Get Terraform Outputs
-      #   if: steps.plan.outcome == 'success' # Só roda se o apply rodou (implícito pelo if anterior)
-      #   id: outputs
-      #   run: |
-      #     echo "ec2_instance_id=$(terraform output -raw instance_id)" >> $GITHUB_OUTPUT # Assume output chamado 'instance_id'
-      #   working-directory: ./terraform # <<< ADICIONADO working-directory
-
-  # --- Job: Fazer Deploy da Aplicação Django ---
-  deploy_django:
-    name: Deploy Django Application
-    needs: terraform # Garante que a infraestrutura foi aplicada/está pronta
-    # Roda este job SOMENTE se o job terraform foi bem sucedido (incluindo apply implícito pelo if)
-    if: needs.terraform.outputs.tf_plan_outcome == 'success'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        # O checkout aqui é importante para ter o código da aplicação
-        # Se seu deploy script faz 'git pull', talvez não precise do código aqui.
-        uses: actions/checkout@v4
-
-      - name: Configure AWS Credentials using OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          # Substitua pelo ARN da Role que permite o deploy (pode ser a mesma do TF ou outra)
-          # ATENÇÃO: Verifique se este ARN e a Role/Permissões estão corretos!
-          role-to-assume: arn:aws:iam::575108956536:role/GitHubActions-SistemaWebBackupRDS-Role
-          aws-region: ${{ env.AWS_REGION }}
-
-      # --- Método 1: Usando AWS Systems Manager Run Command (Preferido) ---
-      - name: Execute Deploy Script via SSM Run Command
-        uses: aws-actions/aws-ssm-send-command@v1
-        with:
-          # !! IMPORTANTE: Substitua pelo ID REAL da instância EC2 !!
-          # Você pode obter isso de um output do Terraform (ex: needs.terraform.outputs.ec2_instance_id)
-          # ou buscar via AWS CLI usando tags se o output não for usado.
-          instance-ids: "i-xxxxxxxxxxxxxxxxx" # <<< SUBSTITUA PELO ID CORRETO OU MÉTODO DINÂMICO
-          document-name: "AWS-RunShellScript"
-          # Ajuste os comandos e caminhos conforme sua configuração no EC2
-          command: |
-            set -e
-            echo "Iniciando deploy..."
-            PROJECT_DIR="/home/ec2-user/sistema_web_backup_rds" # Defina o diretório do projeto
-            VENV_PATH="$PROJECT_DIR/venv" # Defina o caminho do virtualenv
-
-            cd $PROJECT_DIR
-            echo "Executando git pull..." # Executar pull para garantir código mais recente
-            git pull origin main
-
-            echo "Ativando ambiente virtual..."
-            if [ -d "$VENV_PATH" ]; then
-              source "$VENV_PATH/bin/activate"
-            else
-              echo "Erro: Ambiente virtual não encontrado em $VENV_PATH"
-              exit 1
-            fi
-
-            echo "Instalando dependências..."
-            pip install -r requirements.txt
-
-            echo "Rodando migrações..."
-            python manage.py migrate --noinput
-
-            echo "Coletando arquivos estáticos..."
-            python manage.py collectstatic --noinput
-
-            echo "Reiniciando serviços..."
-            # !! IMPORTANTE: Substitua 'gunicorn' e 'nginx' pelos nomes exatos dos seus serviços systemd !!
-            sudo systemctl restart gunicorn
-            sudo systemctl restart nginx
-            echo "Deploy concluído!"
-          comment: "Deploy da aplicação Django via GitHub Actions"
-          timeout-seconds: '600' # Aumentado timeout por segurança
-
-      # --- Método 2: Usando SSH (Alternativa) ---
-      # (Comentado - se usar, lembre-se de configurar os secrets no GitHub)
+        id: apply
+        run: terraform apply -auto-approve -input=false
