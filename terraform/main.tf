@@ -139,13 +139,13 @@ resource "aws_instance" "app_server" {
   ami                         = var.ami_id
   instance_type               = var.instance_type
   key_name                    = var.key_name
-  subnet_id                   = var.subnet_id
+  subnet_id                   = var.subnet_id # Garanta que é uma sub-rede com acesso à internet (NAT se IP público for false)
   vpc_security_group_ids      = [aws_security_group.app_sg.id]
-  associate_public_ip_address = false # Não será associado um endereço IP publico para essa instancia.
+  associate_public_ip_address = false # Confirmado como false
 
   iam_instance_profile        = aws_iam_instance_profile.ec2_s3_backup_profile.name
 
-  # Script User Data (mantido como na sugestão anterior)
+  # Script User Data (Ajustado para não criar $PROJECT_DIR antes do clone e ajustar chown)
   user_data = <<-EOF
               #!/bin/bash -xe
               # Usar -xe para sair em erro e mostrar comandos executados
@@ -158,31 +158,44 @@ resource "aws_instance" "app_server" {
               dnf install nginx -y
               echo "--- Dependências base instaladas ---"
 
-              # 2. Criar Diretórios
+              # 2. Definir Variáveis e Criar Diretórios *NECESSÁRIOS*
               PROJECT_DIR="${var.project_dir_on_server}"
               DB_DIR=$(dirname "${var.db_path_on_server}")
               VENV_DIR="$PROJECT_DIR/venv"
-              STATIC_DIR="$PROJECT_DIR/staticfiles" # Diretório para collectstatic
+              STATIC_DIR="$PROJECT_DIR/staticfiles" # Será criado pelo collectstatic ou pode ser criado aqui
               DB_PATH="${var.db_path_on_server}"
 
-              mkdir -p $PROJECT_DIR
+              # Criar apenas os diretórios que o git clone NÃO cria
               mkdir -p $DB_DIR
-              mkdir -p $STATIC_DIR
-              chown -R ec2-user:ec2-user /opt
+              # Opcional: mkdir -p $STATIC_DIR # Ou deixar collectstatic criar
 
-              echo "--- Diretórios criados ---"
+              echo "--- Diretórios base criados (DB, talvez Static) ---"
 
-              # 3. Clonar Repositório
+              # 3. Clonar Repositório (Git criará $PROJECT_DIR)
               git clone "${var.github_repo_url}" $PROJECT_DIR
-              cd $PROJECT_DIR
+              cd $PROJECT_DIR # Entra no diretório recém-clonado
 
               echo "--- Repositório clonado ---"
 
+              # 3.5 AJUSTAR PERMISSÕES *APÓS* CRIAR/CLONAR
+              # Aplica permissão ao diretório do projeto clonado e ao diretório de dados
+              # Executar como root, então permissão será root:root, mas aplicação (gunicorn) rodará como ec2-user?
+              # Melhor garantir que ec2-user seja o dono para evitar problemas de permissão com a aplicação.
+              chown -R ec2-user:ec2-user $PROJECT_DIR
+              chown -R ec2-user:ec2-user $DB_DIR
+              # Se criou $STATIC_DIR antes: chown -R ec2-user:ec2-user $STATIC_DIR
+
+              echo "--- Permissões ajustadas ---"
+
               # 4. Criar e Ativar Ambiente Virtual & Instalar Dependências Python
+              # Criar venv como ec2-user para consistência? Ou deixar root criar e app usar?
+              # Mais simples deixar root criar e garantir que app (gunicorn) tenha acesso leitura/escrita onde precisar.
               python3 -m venv $VENV_DIR
+              # Ativar e instalar (ainda como root)
               source $VENV_DIR/bin/activate
               pip install -r requirements.txt
               pip install gunicorn
+              deactivate # Desativar venv no script principal, será ativado pelo serviço/execução
 
               echo "--- Ambiente Python configurado ---"
 
@@ -190,12 +203,13 @@ resource "aws_instance" "app_server" {
               echo "AVISO: Configure DEBUG, ALLOWED_HOSTS, SECRET_KEY e DATABASE no settings.py ou via ENV VARS!"
 
               # 6. Rodar Migrações e Coletar Estáticos
+              # Garante que o arquivo DB exista (se necessário) e tenha permissão
               touch $DB_PATH
-              chown ec2-user:ec2-user $DB_PATH
-              chown ec2-user:ec2-user $DB_DIR
+              chown ec2-user:ec2-user $DB_PATH # Permissão no arquivo DB para ec2-user
 
-              python manage.py migrate --noinput
-              python manage.py collectstatic --noinput --clear
+              # Executar manage.py usando o python do venv
+              sudo -u ec2-user $VENV_DIR/bin/python manage.py migrate --noinput
+              sudo -u ec2-user $VENV_DIR/bin/python manage.py collectstatic --noinput --clear # collectstatic criará $STATIC_DIR se não existir
 
               echo "--- Migrations e Collectstatic concluídos ---"
 
@@ -232,12 +246,12 @@ resource "aws_instance" "app_server" {
 # (Mantidos como estavam, mas usando a nova referência 'app_server')
 
 output "instance_public_ip" {
-  description = "Endereco IP Publico da instancia EC2 criada"
+  description = "Endereco IP Publico da instancia EC2 criada (vazio se associate_public_ip_address = false)"
   value       = aws_instance.app_server.public_ip
 }
 
 output "instance_public_dns" {
-  description = "DNS Publico da instancia EC2 criada"
+  description = "DNS Publico da instancia EC2 criada (vazio se associate_public_ip_address = false)"
   value       = aws_instance.app_server.public_dns
 }
 
