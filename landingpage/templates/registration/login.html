@@ -1,0 +1,21 @@
+{# templates/registration/login.html #}
+{% extends "base.html" %} {# Opcional: se você tiver um template base #}
+
+{% block content %} {# Opcional: se você usar blocos de template base #}
+  <h2>Login</h2>
+  {% if form.errors %}
+    <p style="color: red;">Seu usuário ou senha estão incorretos. Tente novamente.</p>
+  {% endif %}
+
+  <form method="post" action="{% url 'login' %}">
+      {% csrf_token %} {# Obrigatório para segurança #}
+      <table>
+        {{ form.as_table }} {# Renderiza os campos do formulário como tabela #}
+      </table>
+      <button type="submit">Login</button>
+      <input type="hidden" name="next" value="{{ next }}"> {# Para redirecionar após login #}
+  </form>
+
+  {# Link para reset de senha (requer configuração adicional) #}
+  {# <p><a href="{% url 'password_reset' %}">Esqueceu a senha?</a></p> #}
+{% endblock %} {# Opcional: fechamento do bloco #}

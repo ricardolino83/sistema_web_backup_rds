@@ -1,0 +1,23 @@
+{# templates/base.html #}
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{% block title %}Meu Site{% endblock %}</title> {# Título padrão, pode ser sobrescrito #}
+</head>
+<body>
+    <header>
+        <h1>Meu Site</h1>
+        {# Adicionar navegação comum aqui, se desejar #}
+    </header>
+
+    <main>
+        {% block content %}
+        {# O conteúdo específico de cada página virá aqui #}
+        {% endblock %}
+    </main>
+
+    <footer>
+        <p>&copy; 2025 Meu Projeto</p>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Página Inicial</title>
+</head>
+<body>
+    <h1>Bem-vindo ao Sistema Web Backup RDS!</h1>
+
+    {% if user %}
+        <p>Olá, {{ user.username }}!</p> 
+        <p><a href="{% url 'logout' %}">Logout</a></p> 
+        {# 'logout' será definido mais tarde #}
+    {% else %}
+        <p>Você não está logado.</p>
+        <p><a href="{% url 'login' %}">Login com Cognito</a></p> 
+        {# 'login' será definido mais tarde #}
+    {% endif %}
+
+    <p>Esta é a página inicial do seu projeto.</p>
+
+    {# Adicionaremos mais lógica e links de login/logout aqui #}
+</body>
+</html>
