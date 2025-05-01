@@ -9,7 +9,7 @@ terraform {
   # --- Bloco de Configuração do Backend S3 ---
   backend "s3" {
     bucket         = "do-not-delete-tfstate-sistemabackup-prod-sa-east-1-7bafd8" # SEU BUCKET S3
-    key            = "sistemabackup/terraform.tfstate" # Caminho/nome do arquivo de estado no bucket (pode ajustar se quiser)
+    key            = "sistemabackup/terraform.tfstate" # Caminho/nome do arquivo de estado no bucket
     region         = "sa-east-1"                       # Região DO BUCKET S3
     dynamodb_table = "terraform-locks-RicardoLino-prod" # SUA TABELA DYNAMODB
     encrypt        = true                              # Habilita criptografia do estado no S3
