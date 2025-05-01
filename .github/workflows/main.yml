@@ -1,70 +1,122 @@
-# Nome do Workflow
-name: Destroy and Apply Terraform Infrastructure
+# Bloco de configuração do Terraform, provedor AWS e Backend Remoto
+terraform {
+  # Bloco existente de required_providers
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0" 
+    }
+  }
 
-# Gatilho
-on:
-  push:
-    branches:
-      - main # Executa em CADA push para 'main'
+  # --- Bloco de Configuração do Backend S3 ---
+  backend "s3" {
+    bucket         = "do-not-delete-tfstate-sistemabackup-prod-sa-east-1-7bafd8" # Nome do seu bucket
+    key            = "sistemabackup/terraform.tfstate"                         # Caminho/nome do arquivo de estado no bucket
+    region         = "sa-east-1"                                               # Região do bucket S3
+    dynamodb_table = "terraform-locks-RicardoLino-prod"                        # Nome da sua tabela DynamoDB
+    encrypt        = true                                                      # Habilita criptografia do estado no S3
+  }
+  # ------------------------------------------
+}
 
-# Permissões
-permissions:
-  id-token: write 
-  contents: read  
+# Configura o provedor AWS para a região desejada
+provider "aws" {
+  region = "sa-east-1"
+}
 
-jobs:
-  terraform_destroy_apply:
-    name: 'Terraform Destroy and Apply'
-    runs-on: ubuntu-latest
+# Cria um Security Group na VPC especificada
+resource "aws_security_group" "meu_servidor_sg" { 
+  name        = "SistemaWebBackupRDS-sg" # Usando o último nome que causou conflito - ajuste se necessário ou delete o existente na AWS
+  description = "Permite acesso SSH, HTTP, HTTPS e porta 8000 a partir de um IP especifico"
+  vpc_id      = "vpc-01949bdd15953d7ae" # VPC Específica
 
-    steps:
-      # 1. Checkout do código
-      - name: Checkout code
-        uses: actions/checkout@v4
+  # Regras de Entrada (Ingress)
+  ingress {
+    description      = "SSH from specific IP"
+    from_port        = 22
+    to_port          = 22
+    protocol         = "tcp"
+    cidr_blocks      = ["10.3.0.138/32"] 
+  }
 
-      # 2. Configura as credenciais AWS usando OIDC
-      - name: Configure AWS Credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }} 
-          aws-region: sa-east-1 
-          role-session-name: GitHubActions-${{ github.run_id }} 
+  ingress {
+    description      = "HTTP from specific IP"
+    from_port        = 80
+    to_port          = 80
+    protocol         = "tcp"
+    cidr_blocks      = ["10.3.0.138/32"] 
+  }
 
-      # 3. Setup do Terraform
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+  ingress {
+    description      = "HTTPS from specific IP"
+    from_port        = 443
+    to_port          = 443
+    protocol         = "tcp"
+    cidr_blocks      = ["10.3.0.138/32"] 
+  }
 
-      # 4. Terraform Init
-      #    Necessário tanto para destroy quanto para apply.
-      #    Recomendado usar backend remoto (S3) para consistência.
-      - name: Terraform Init
-        id: init
-        run: terraform init
-        working-directory: ./terraform 
+  ingress {
+    description      = "Port 8000 from specific IP"
+    from_port        = 8000
+    to_port          = 8000
+    protocol         = "tcp"
+    cidr_blocks      = ["10.3.0.138/32"] 
+  }
 
-      # 5. Terraform Validate (Opcional, mas bom ter)
-      - name: Terraform Validate
-        id: validate
-        run: terraform validate -no-color
-        working-directory: ./terraform
+  # Regra de Saída (Egress)
+  egress {
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1" 
+    cidr_blocks      = ["0.0.0.0/0"] 
+  }
 
-      # 6. !!! Terraform Destroy !!!
-      #    Executa a destruição automaticamente ANTES do apply.
-      #    Ignora erros se não houver nada para destruir (útil na primeira execução)
-      - name: Terraform Destroy
-        id: destroy
-        run: terraform destroy -auto-approve || true # Adicionado '|| true' para não falhar se não houver nada para destruir
-        working-directory: ./terraform
+  tags = {
+    Name = "SistemaWebBackupRDS-sg" # Ajuste se necessário 
+  }
+}
 
-      # 7. Terraform Plan (Opcional após destroy, mas pode pegar erros antes do apply)
-      - name: Terraform Plan
-        id: plan
-        run: terraform plan -no-color
-        working-directory: ./terraform
+# Cria a instância EC2 na Subnet especificada dentro da VPC
+resource "aws_instance" "meu_servidor" {
+  ami           = "ami-06f3ec245e30a74d3"      
+  instance_type = "t2.micro"                   
+  key_name      = "Ricardo Lino - Prod"        
+  subnet_id     = "subnet-0ac0015f3c048a81d" # Subnet ID que você forneceu antes
+  
+  vpc_security_group_ids = [aws_security_group.meu_servidor_sg.id] 
 
-      # 8. Terraform Apply
-      #    Recria a infraestrutura após a destruição.
-      - name: Terraform Apply
-        id: apply
-        run: terraform apply -auto-approve -input=false
-        working-directory: ./terraform
+  associate_public_ip_address = false 
+
+  # Configurações de Armazenamento (Exemplo)
+  root_block_device {
+    volume_size = 30       
+    volume_type = "gp3"    
+    delete_on_termination = true 
+    tags = {
+      Name = "SistemaWebBackupRDS-Raiz" # Tag atualizada
+    }
+  }
+  
+  # Bloco ebs_block_device opcional omitido (adicione se precisar de volume extra)
+
+  tags = {
+    Name = "SistemaWebBackupRDS" 
+  }
+}
+
+# --- Outputs ---
+
+output "instance_public_ip" {
+  description = "Endereco IP Publico da instancia EC2 criada (depende de 'associate_public_ip_address' e da subnet)"
+  value       = aws_instance.meu_servidor.public_ip 
+}
+
+output "instance_public_dns" {
+  description = "DNS Publico da instancia EC2 criada (depende de 'associate_public_ip_address' e da subnet)"
+  value       = aws_instance.meu_servidor.public_dns 
+}
+
+output "instance_private_ip" {
+  description = "Endereco IP Privado da instancia EC2 criada"
+  value       = aws_instance.meu_servidor.private_ip
+}
