@@ -14,13 +14,11 @@ provider "aws" {
 }
 
 # Cria um Security Group para a instância EC2
-# MUDANÇA 1: Nome lógico do recurso alterado de "instance_sg" para "meu_servidor_sg"
 resource "aws_security_group" "meu_servidor_sg" { 
-  # MUDANÇA 2: Nome real do Security Group alterado para algo único
-  name        = "meu-servidor-sg" 
+  name        = "meu-servidor-sg" # Nome único para o Security Group na VPC
   description = "Permite acesso SSH, HTTP, HTTPS e porta 8000 a partir de um IP especifico"
 
-  # Regras de Entrada (Ingress) - Mantidas como estavam
+  # Regras de Entrada (Ingress)
   ingress {
     description      = "SSH from specific IP"
     from_port        = 22
@@ -53,47 +51,53 @@ resource "aws_security_group" "meu_servidor_sg" {
     cidr_blocks      = ["10.3.0.138/32"] 
   }
 
-  # Regra de Saída (Egress) - Mantida como estava
+  # Regra de Saída (Egress)
   egress {
     from_port        = 0
     to_port          = 0
-    protocol         = "-1" 
-    cidr_blocks      = ["0.0.0.0/0"] 
+    protocol         = "-1" # Todos os protocolos
+    cidr_blocks      = ["0.0.0.0/0"] # Qualquer destino
   }
 
   tags = {
-    # MUDANÇA 3: Tag Name atualizada para corresponder ao novo nome
     Name = "meu-servidor-sg" 
   }
 }
 
 # Cria a instância EC2
 resource "aws_instance" "meu_servidor" {
-  ami           = "ami-06f3ec245e30a74d3"      
-  instance_type = "t2.micro"                   
-  key_name      = "Ricardo Lino - Prod"        
+  ami           = "ami-06f3ec245e30a74d3"      # AMI ID (Verificar se ainda é válido/desejado)
+  instance_type = "t2.micro"                   # Tipo de instância
+  key_name      = "Ricardo Lino - Prod"        # Nome do Key Pair (Deve existir em sa-east-1)
   
-  # Associa o Security Group criado acima à instância
-  # MUDANÇA 4: Referência atualizada para usar o novo nome lógico do Security Group
+  # Associa o Security Group criado acima
   vpc_security_group_ids = [aws_security_group.meu_servidor_sg.id] 
 
-  # Adiciona esta linha para NÃO atribuir IP público
+  # Garante que NÃO será atribuído um IP público
   associate_public_ip_address = false 
-  
-  # Adiciona uma tag para identificar a instância na console da AWS
+
+  # Tag para identificar a instância na AWS
   tags = {
     Name = "SistemaWebBackupRDS" 
   }
 }
 
-# Define uma saída para mostrar o IP público da instância após criada
+# --- Outputs ---
+
+# Opcional: Mantido para referência, mas retornará vazio/nulo
 output "instance_public_ip" {
-  description = "Endereco IP Publico da instancia EC2 criada"
-  value       = aws_instance.meu_servidor.public_ip
+  description = "Endereco IP Publico da instancia EC2 criada (sera vazio/nulo pois associate_public_ip_address = false)"
+  value       = aws_instance.meu_servidor.public_ip 
 }
 
-# Define uma saída para mostrar o DNS público da instância após criada
+# Opcional: Mantido para referência, mas retornará vazio/nulo
 output "instance_public_dns" {
-  description = "DNS Publico da instancia EC2 criada"
-  value       = aws_instance.meu_servidor.public_dns
+  description = "DNS Publico da instancia EC2 criada (sera vazio/nulo pois associate_public_ip_address = false)"
+  value       = aws_instance.meu_servidor.public_dns 
+}
+
+# Recomendado: Output do IP Privado, útil para acesso interno
+output "instance_private_ip" {
+  description = "Endereco IP Privado da instancia EC2 criada"
+  value       = aws_instance.meu_servidor.private_ip
 }
