@@ -77,9 +77,12 @@ resource "aws_instance" "meu_servidor" {
   # MUDANÇA 4: Referência atualizada para usar o novo nome lógico do Security Group
   vpc_security_group_ids = [aws_security_group.meu_servidor_sg.id] 
 
+  # Adiciona esta linha para NÃO atribuir IP público
+  associate_public_ip_address = false 
+  
   # Adiciona uma tag para identificar a instância na console da AWS
   tags = {
-    Name = "MeuServidorTerraform" 
+    Name = "SistemaWebBackupRDS" 
   }
 }
 
