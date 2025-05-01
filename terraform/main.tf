@@ -3,7 +3,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0" # Você pode ajustar a versão conforme necessário
+      version = "~> 5.0" 
     }
   }
 }
@@ -13,10 +13,13 @@ provider "aws" {
   region = "sa-east-1"
 }
 
-# Cria um Security Group para a instância EC2
+# Cria um Security Group na VPC especificada
 resource "aws_security_group" "meu_servidor_sg" { 
-  name        = "meu-servidor-sg" # Nome único para o Security Group na VPC
+  name        = "SistemaWebBackupRDS-sg" 
   description = "Permite acesso SSH, HTTP, HTTPS e porta 8000 a partir de um IP especifico"
+  
+  # Especifica a VPC onde o Security Group será criado
+  vpc_id      = "vpc-01949bdd15953d7ae" 
 
   # Regras de Entrada (Ingress)
   ingress {
@@ -55,8 +58,8 @@ resource "aws_security_group" "meu_servidor_sg" {
   egress {
     from_port        = 0
     to_port          = 0
-    protocol         = "-1" # Todos os protocolos
-    cidr_blocks      = ["0.0.0.0/0"] # Qualquer destino
+    protocol         = "-1" 
+    cidr_blocks      = ["0.0.0.0/0"] 
   }
 
   tags = {
@@ -64,19 +67,23 @@ resource "aws_security_group" "meu_servidor_sg" {
   }
 }
 
-# Cria a instância EC2
+# Cria a instância EC2 na Subnet especificada dentro da VPC
 resource "aws_instance" "meu_servidor" {
-  ami           = "ami-06f3ec245e30a74d3"      # AMI ID (Verificar se ainda é válido/desejado)
-  instance_type = "t2.micro"                   # Tipo de instância
-  key_name      = "Ricardo Lino - Prod"        # Nome do Key Pair (Deve existir em sa-east-1)
+  ami           = "ami-06f3ec245e30a74d3"      
+  instance_type = "t2.micro"                   
+  key_name      = "Ricardo Lino - Prod"        
   
-  # Associa o Security Group criado acima
+  # NOVO: Especifica a Subnet ID onde a instância será lançada
+  # !!! IMPORTANTE: Substitua pelo ID da sua subnet !!!
+  subnet_id     = "subnet-0ac0015f3c048a81d" 
+
+  # Associa o Security Group criado acima (que está na mesma VPC)
   vpc_security_group_ids = [aws_security_group.meu_servidor_sg.id] 
 
-  # Garante que NÃO será atribuído um IP público
+  # Garante que NÃO será atribuído um IP público (pode depender da config da subnet)
+  # Se a subnet for pública e você QUISER um IP público nela, mude para 'true'
   associate_public_ip_address = false 
 
-  # Tag para identificar a instância na AWS
   tags = {
     Name = "SistemaWebBackupRDS" 
   }
@@ -84,19 +91,16 @@ resource "aws_instance" "meu_servidor" {
 
 # --- Outputs ---
 
-# Opcional: Mantido para referência, mas retornará vazio/nulo
 output "instance_public_ip" {
-  description = "Endereco IP Publico da instancia EC2 criada (sera vazio/nulo pois associate_public_ip_address = false)"
+  description = "Endereco IP Publico da instancia EC2 criada (depende de 'associate_public_ip_address' e da subnet)"
   value       = aws_instance.meu_servidor.public_ip 
 }
 
-# Opcional: Mantido para referência, mas retornará vazio/nulo
 output "instance_public_dns" {
-  description = "DNS Publico da instancia EC2 criada (sera vazio/nulo pois associate_public_ip_address = false)"
+  description = "DNS Publico da instancia EC2 criada (depende de 'associate_public_ip_address' e da subnet)"
   value       = aws_instance.meu_servidor.public_dns 
 }
 
-# Recomendado: Output do IP Privado, útil para acesso interno
 output "instance_private_ip" {
   description = "Endereco IP Privado da instancia EC2 criada"
   value       = aws_instance.meu_servidor.private_ip

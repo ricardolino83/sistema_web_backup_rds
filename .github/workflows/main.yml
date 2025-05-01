@@ -1,21 +1,20 @@
 # Nome do Workflow
-name: Deploy Terraform Infrastructure via OIDC
+name: Destroy and Apply Terraform Infrastructure
 
 # Gatilho
 on:
   push:
     branches:
-      - main
-  # workflow_dispatch:
+      - main # Executa em CADA push para 'main'
 
-# Permissões necessárias para o Job obter o token OIDC e ler o conteúdo
+# Permissões
 permissions:
-  id-token: write # Necessário para solicitar o token OIDC do GitHub
-  contents: read  # Necessário para fazer o checkout do código
+  id-token: write 
+  contents: read  
 
 jobs:
-  terraform:
-    name: 'Terraform Apply using OIDC'
+  terraform_destroy_apply:
+    name: 'Terraform Destroy and Apply'
     runs-on: ubuntu-latest
 
     steps:
@@ -24,38 +23,47 @@ jobs:
         uses: actions/checkout@v4
 
       # 2. Configura as credenciais AWS usando OIDC
-      #    Substitua 'arn:aws:iam::SEU_ACCOUNT_ID:role/SEU_GITHUB_ACTIONS_ROLE_NAME'
-      #    pelo ARN da Role que você criou na AWS para este workflow.
       - name: Configure AWS Credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
-          aws-region: sa-east-1 # Sua região AWS
-          role-session-name: GitHubActions-${{ github.run_id }}
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }} 
+          aws-region: sa-east-1 
+          role-session-name: GitHubActions-${{ github.run_id }} 
 
       # 3. Setup do Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
       # 4. Terraform Init
+      #    Necessário tanto para destroy quanto para apply.
+      #    Recomendado usar backend remoto (S3) para consistência.
       - name: Terraform Init
         id: init
         run: terraform init
-        working-directory: ./terraform
+        working-directory: ./terraform 
 
-      # 5. Terraform Validate
+      # 5. Terraform Validate (Opcional, mas bom ter)
       - name: Terraform Validate
         id: validate
         run: terraform validate -no-color
         working-directory: ./terraform
 
-      # 6. Terraform Plan
+      # 6. !!! Terraform Destroy !!!
+      #    Executa a destruição automaticamente ANTES do apply.
+      #    Ignora erros se não houver nada para destruir (útil na primeira execução)
+      - name: Terraform Destroy
+        id: destroy
+        run: terraform destroy -auto-approve || true # Adicionado '|| true' para não falhar se não houver nada para destruir
+        working-directory: ./terraform
+
+      # 7. Terraform Plan (Opcional após destroy, mas pode pegar erros antes do apply)
       - name: Terraform Plan
         id: plan
         run: terraform plan -no-color
         working-directory: ./terraform
 
-      # 7. Terraform Apply (com auto-approve)
+      # 8. Terraform Apply
+      #    Recria a infraestrutura após a destruição.
       - name: Terraform Apply
         id: apply
         run: terraform apply -auto-approve -input=false
