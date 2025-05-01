@@ -110,7 +110,7 @@ resource "aws_instance" "meu_servidor" {
   }
 }
 
-# --- Outputs ---
+# --- Outputs --- #
 
 output "instance_public_ip" {
   description = "Endereco IP Publico da instancia EC2 criada (depende de 'associate_public_ip_address' e da subnet)"
