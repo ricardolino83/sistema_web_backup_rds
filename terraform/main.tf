@@ -14,17 +14,19 @@ provider "aws" {
 }
 
 # Cria um Security Group para a instância EC2
-resource "aws_security_group" "instance_sg" {
-  name        = "instance_sg" # Nome do Security Group
+# MUDANÇA 1: Nome lógico do recurso alterado de "instance_sg" para "meu_servidor_sg"
+resource "aws_security_group" "meu_servidor_sg" { 
+  # MUDANÇA 2: Nome real do Security Group alterado para algo único
+  name        = "meu-servidor-sg" 
   description = "Permite acesso SSH, HTTP, HTTPS e porta 8000 a partir de um IP especifico"
 
-  # Regras de Entrada (Ingress)
+  # Regras de Entrada (Ingress) - Mantidas como estavam
   ingress {
     description      = "SSH from specific IP"
     from_port        = 22
     to_port          = 22
     protocol         = "tcp"
-    cidr_blocks      = ["10.3.0.138/32"] # Permite acesso da porta 22 apenas deste IP
+    cidr_blocks      = ["10.3.0.138/32"] 
   }
 
   ingress {
@@ -32,7 +34,7 @@ resource "aws_security_group" "instance_sg" {
     from_port        = 80
     to_port          = 80
     protocol         = "tcp"
-    cidr_blocks      = ["10.3.0.138/32"] # Permite acesso da porta 80 apenas deste IP
+    cidr_blocks      = ["10.3.0.138/32"] 
   }
 
   ingress {
@@ -40,7 +42,7 @@ resource "aws_security_group" "instance_sg" {
     from_port        = 443
     to_port          = 443
     protocol         = "tcp"
-    cidr_blocks      = ["10.3.0.138/32"] # Permite acesso da porta 443 apenas deste IP
+    cidr_blocks      = ["10.3.0.138/32"] 
   }
 
   ingress {
@@ -48,35 +50,36 @@ resource "aws_security_group" "instance_sg" {
     from_port        = 8000
     to_port          = 8000
     protocol         = "tcp"
-    cidr_blocks      = ["10.3.0.138/32"] # Permite acesso da porta 8000 apenas deste IP
+    cidr_blocks      = ["10.3.0.138/32"] 
   }
 
-  # Regra de Saída (Egress) - Permite todo o tráfego de saída
+  # Regra de Saída (Egress) - Mantida como estava
   egress {
     from_port        = 0
     to_port          = 0
-    protocol         = "-1" # Significa todos os protocolos
-    cidr_blocks      = ["0.0.0.0/0"] # Permite sair para qualquer lugar
+    protocol         = "-1" 
+    cidr_blocks      = ["0.0.0.0/0"] 
   }
 
   tags = {
-    Name = "instance_sg" # Tag para identificar o Security Group
+    # MUDANÇA 3: Tag Name atualizada para corresponder ao novo nome
+    Name = "meu-servidor-sg" 
   }
 }
 
 # Cria a instância EC2
 resource "aws_instance" "meu_servidor" {
-  ami           = "ami-06f3ec245e30a74d3"        # AMI ID que você forneceu (Amazon Linux 2 na sa-east-1)
-  instance_type = "t2.micro"                   # Tipo de instância (pode ser alterado)
-  key_name      = "Ricardo Lino - Prod"        # Nome do seu Key Pair existente na AWS/sa-east-1
+  ami           = "ami-06f3ec245e30a74d3"      
+  instance_type = "t2.micro"                   
+  key_name      = "Ricardo Lino - Prod"        
   
   # Associa o Security Group criado acima à instância
-  # Usamos o ID do Security Group que o Terraform vai criar
-  vpc_security_group_ids = [aws_security_group.instance_sg.id] 
+  # MUDANÇA 4: Referência atualizada para usar o novo nome lógico do Security Group
+  vpc_security_group_ids = [aws_security_group.meu_servidor_sg.id] 
 
   # Adiciona uma tag para identificar a instância na console da AWS
   tags = {
-    Name = "MeuServidorTerraform" # Nome que aparecerá na console da AWS
+    Name = "MeuServidorTerraform" 
   }
 }
 
