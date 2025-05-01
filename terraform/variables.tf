@@ -19,7 +19,7 @@ variable "vpc_id" {
 variable "subnet_id" {
   description = "ID da Subnet pública onde a instância EC2 será criada (Substitua ou use data source)"
   type        = string
-  default = "subnet-0ac0015f3c048a81d"
+  default = "subnet-03161e1175c52f4c8"
 }
 
 variable "ami_id" {
