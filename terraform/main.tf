@@ -141,7 +141,7 @@ resource "aws_instance" "app_server" {
   key_name                    = var.key_name
   subnet_id                   = var.subnet_id
   vpc_security_group_ids      = [aws_security_group.app_sg.id]
-  associate_public_ip_address = true # Alterado para true
+  associate_public_ip_address = false # Não será associado um endereço IP publico para essa instancia.
 
   iam_instance_profile        = aws_iam_instance_profile.ec2_s3_backup_profile.name
 
