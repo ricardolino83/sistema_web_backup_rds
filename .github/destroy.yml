@@ -1,0 +1,55 @@
+# Nome do Workflow que aparecerá na aba Actions do GitHub
+name: Destroy Terraform Infrastructure (Manual)
+
+# Controla quando o workflow será executado
+on:
+  workflow_dispatch: # Permite acionar este workflow manualmente pela UI do GitHub
+    inputs: # Você pode adicionar inputs se quiser confirmações extras
+      confirm:
+        description: 'Digite "destroy" para confirmar.'
+        required: true
+
+# Permissões necessárias para o Job obter o token OIDC e ler o conteúdo
+permissions:
+  id-token: write # Necessário para solicitar o token OIDC do GitHub
+  contents: read  # Necessário para fazer o checkout do código
+
+jobs:
+  terraform_destroy:
+    name: 'Terraform Destroy'
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'destroy' # Habilite se usar o input de confirmação acima
+
+    steps:
+      # 1. Checkout do código (para acessar os arquivos .tf)
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Configura as credenciais AWS usando OIDC
+      #    Usa a variável definida nas configurações do repositório
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          aws-region: sa-east-1 # Sua região AWS
+          role-session-name: GitHubActionsDestroy-${{ github.run_id }}
+
+      # 3. Setup do Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # 4. Terraform Init (Necessário para o Terraform ler o estado)
+      #    IMPORTANTE: Precisa ser configurado para usar o mesmo backend do apply, se houver.
+      #    Se não houver backend remoto, ele pode não encontrar o estado correto.
+      - name: Terraform Init
+        id: init
+        run: terraform init
+        working-directory: ./terraform # Garante que roda na pasta correta
+
+      # 5. Terraform Destroy
+      #    O '-auto-approve' executa a destruição SEM pedir confirmação 'yes'.
+      #    Como este workflow já é manual, geralmente é seguro usar aqui.
+      - name: Terraform Destroy
+        id: destroy
+        run: terraform destroy -auto-approve
+        working-directory: ./terraform # Garante que roda na pasta correta
