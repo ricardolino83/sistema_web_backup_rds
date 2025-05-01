@@ -83,17 +83,15 @@ resource "aws_instance" "meu_servidor" {
   # Se a subnet for pública e você QUISER um IP público nela, mude para 'true'
   associate_public_ip_address = false 
 
-  # --- Configuração do Volume Raiz ---
+  # Configurações de Armazenamento
   root_block_device {
-    volume_size = 30       # Define o tamanho em GiB
-    volume_type = "gp3"    # Define o tipo (gp2, gp3, io1, io2, etc.)
-    delete_on_termination = true # true (padrão) = exclui o volume ao terminar a instância
-                                 # false = mantém o volume após terminar a instância
-    # encrypted = true       # Descomente para habilitar criptografia
-    # kms_key_id = "arn:..." # Especifique uma chave KMS se necessário
+    volume_size = 30       # Ex: Aumenta o volume raiz para 30 GiB
+    volume_type = "gp3"    # Ex: Usa tipo gp3
+    delete_on_termination = true 
     tags = {
-      Name = "MeuServidorRaiz" # Tag específica para o volume raiz
+      Name = "SistemaWebBackupRDS"
     }
+  }
 
   tags = {
     Name = "SistemaWebBackupRDS" 
