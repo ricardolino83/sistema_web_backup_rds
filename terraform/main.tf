@@ -63,18 +63,17 @@ resource "aws_security_group" "meu_servidor_sg" {
   }
 
   tags = {
-    Name = "meu-servidor-sg" 
+    Name = "SistemaWebBackupRDS-sg" 
   }
 }
 
 # Cria a instância EC2 na Subnet especificada dentro da VPC
 resource "aws_instance" "meu_servidor" {
-  ami           = "ami-06f3ec245e30a74d3"      
-  instance_type = "t2.micro"                   
-  key_name      = "Ricardo Lino - Prod"        
+  ami           = "ami-06f3ec245e30a74d3"
+  instance_type = "t2.micro"
+  key_name      = "Ricardo Lino - Prod"
   
   # NOVO: Especifica a Subnet ID onde a instância será lançada
-  # !!! IMPORTANTE: Substitua pelo ID da sua subnet !!!
   subnet_id     = "subnet-0ac0015f3c048a81d" 
 
   # Associa o Security Group criado acima (que está na mesma VPC)
@@ -83,6 +82,18 @@ resource "aws_instance" "meu_servidor" {
   # Garante que NÃO será atribuído um IP público (pode depender da config da subnet)
   # Se a subnet for pública e você QUISER um IP público nela, mude para 'true'
   associate_public_ip_address = false 
+
+  # --- Configuração do Volume Raiz ---
+  root_block_device {
+    volume_size = 30       # Define o tamanho em GiB
+    volume_type = "gp3"    # Define o tipo (gp2, gp3, io1, io2, etc.)
+    delete_on_termination = true # true (padrão) = exclui o volume ao terminar a instância
+                                 # false = mantém o volume após terminar a instância
+    # encrypted = true       # Descomente para habilitar criptografia
+    # kms_key_id = "arn:..." # Especifique uma chave KMS se necessário
+    tags = {
+      Name = "MeuServidorRaiz" # Tag específica para o volume raiz
+    }
 
   tags = {
     Name = "SistemaWebBackupRDS" 
