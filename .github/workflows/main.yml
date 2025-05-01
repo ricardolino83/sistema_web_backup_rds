@@ -41,18 +41,22 @@ jobs:
       - name: Terraform Init
         id: init
         run: terraform init
+        working-directory: ./terraform
 
       # 5. Terraform Validate
       - name: Terraform Validate
         id: validate
         run: terraform validate -no-color
+        working-directory: ./terraform
 
       # 6. Terraform Plan
       - name: Terraform Plan
         id: plan
         run: terraform plan -no-color
+        working-directory: ./terraform
 
       # 7. Terraform Apply (com auto-approve)
       - name: Terraform Apply
         id: apply
         run: terraform apply -auto-approve -input=false
+        working-directory: ./terraform
