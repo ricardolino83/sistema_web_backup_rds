@@ -1,0 +1,24 @@
+# .gitattributes
+
+# Detecta automaticamente arquivos de texto e normaliza para LF nos commits
+# e usa a terminação nativa do SO no checkout (ou LF se eol=lf for definido)
+* text=auto
+
+# Força LF para tipos de arquivo comuns que devem ser sempre LF
+*.tf text eol=lf
+*.tfvars text eol=lf
+*.hcl text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Define arquivos binários para evitar que o Git altere eles
+# Adicione extensões conforme necessário
+# *.png binary
+# *.jpg binary
