@@ -200,14 +200,7 @@ resource "aws_instance" "app_server" {
               dnf install git python3 python3-pip nginx aws-cli -y
               echo "--- Pacotes instalados ---"
 
-              # 2. Criar Diretórios
-              echo "--- Criando diretórios ---"
-              mkdir -p "$DB_DIR"
-              echo "Diretório DB: $DB_DIR"
-              mkdir -p "$PROJECT_DIR" # Garante que o diretório do projeto existe antes do clone
-              echo "Diretório Projeto: $PROJECT_DIR"
-
-              # 3. Clonar Repositório
+              # 2. Clonar Repositório
               echo "--- Clonando repositório $GITHUB_REPO_URL para $PROJECT_DIR ---"
               # Verifica se o diretório já tem algo (evita erro em re-runs parciais)
               if [ -d "$PROJECT_DIR/.git" ]; then
@@ -219,6 +212,13 @@ resource "aws_instance" "app_server" {
                 cd "$PROJECT_DIR"
               fi
               echo "--- Repositório clonado (ou existente) ---"
+
+              # 3. Criar Diretórios
+              echo "--- Criando diretórios ---"
+              mkdir -p "$DB_DIR"
+              echo "Diretório DB: $DB_DIR"
+              mkdir -p "$PROJECT_DIR" # Garante que o diretório do projeto existe antes do clone
+              echo "Diretório Projeto: $PROJECT_DIR"
 
               # 4. Ajustar Permissões Iniciais
               echo "--- Ajustando permissões para ec2-user ---"
@@ -400,7 +400,6 @@ EOT
     Name = var.project_name
   }
 
-  # Garante que a role/profile e o SG existem antes de criar a instância
   depends_on = [aws_security_group.app_sg, aws_iam_instance_profile.ec2_s3_backup_profile]
 }
 
@@ -409,10 +408,6 @@ output "instance_private_ip" {
   description = "Endereco IP Privado da instancia EC2 criada"
   value       = aws_instance.app_server.private_ip
 }
-
-# Removidos outputs de IP público/DNS pois associate_public_ip_address = false
-# output "instance_public_ip" { ... }
-# output "instance_public_dns" { ... }
 
 output "instance_iam_role_name" {
   description = "Nome da IAM Role associada a instancia EC2"
