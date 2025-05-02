@@ -83,6 +83,46 @@ resource "aws_iam_role_policy_attachment" "s3_backup_policy_attach" {
   policy_arn = aws_iam_policy.s3_backup_policy.arn
 }
 
+# === NOVOS BLOCOS PARA PERMISSÃO SSM ===
+
+# 1. Obter o ID da Conta AWS atual para construir o ARN do parâmetro
+data "aws_caller_identity" "current" {}
+
+# 2. Definir o Documento da Política IAM para ler o parâmetro específico
+data "aws_iam_policy_document" "ssm_parameter_read_policy_document" {
+  statement {
+    sid    = "ReadSecretKeyParameter"
+    effect = "Allow"
+    actions = [
+      "ssm:GetParameter"
+    ]
+    # ARN do Parâmetro SSM (usando var.project_name para o nome do parâmetro)
+    resources = [
+      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/SECRET_KEY"
+    ]
+  }
+}
+
+# 3. Criar a Política IAM Gerenciada com base no documento acima
+resource "aws_iam_policy" "ssm_parameter_read_policy" {
+  name        = "${var.project_name}-SSM-Parameter-Read-Policy"
+  description = "Permite ler o parâmetro SSM contendo a SECRET_KEY do Django"
+  policy      = data.aws_iam_policy_document.ssm_parameter_read_policy_document.json
+  tags = {
+    Name = "${var.project_name}-SSM-Parameter-Read-Policy"
+  }
+}
+
+# 4. Anexar a nova Política SSM à Role EC2 existente
+resource "aws_iam_role_policy_attachment" "ssm_parameter_read_policy_attach" {
+  # Anexa à mesma role usada para acesso S3
+  role       = aws_iam_role.ec2_s3_backup_role.name
+  policy_arn = aws_iam_policy.ssm_parameter_read_policy.arn
+}
+
+# === FIM DOS NOVOS BLOCOS PARA PERMISSÃO SSM ===
+
+# Instance Profile usa a mesma role, que agora terá ambas as políticas anexadas
 resource "aws_iam_instance_profile" "ec2_s3_backup_profile" {
   name = "${var.project_name}-EC2-S3-Profile"
   role = aws_iam_role.ec2_s3_backup_role.name
@@ -143,87 +183,88 @@ resource "aws_instance" "app_server" {
   vpc_security_group_ids      = [aws_security_group.app_sg.id]
   associate_public_ip_address = false # Confirmado como false
 
+  # Associa o Instance Profile que contém a Role com permissões S3 e SSM
   iam_instance_profile        = aws_iam_instance_profile.ec2_s3_backup_profile.name
 
-  # Script User Data (Ajustado para não criar $PROJECT_DIR antes do clone e ajustar chown)
+  # Script User Data (com busca da SECRET_KEY do SSM)
   user_data = <<-EOF
               #!/bin/bash -xe
-              # Usar -xe para sair em erro e mostrar comandos executados
+              exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 
               echo "--- Iniciando User Data Script ---"
+              # Variáveis Terraform injetadas no script shell
+              REGION="${var.aws_region}"
+              TF_PROJECT_NAME="${var.project_name}" # Usando prefixo TF para clareza
+              TF_GITHUB_REPO_URL="${var.github_repo_url}"
+              TF_PROJECT_DIR_ON_SERVER="${var.project_dir_on_server}"
+              TF_DB_PATH_ON_SERVER="${var.db_path_on_server}"
+
+              # Variáveis Shell definidas a partir de outras variáveis
+              # Use nomes distintos para variáveis shell se preferir (ex: BASH_PROJECT_NAME)
+              PROJECT_NAME="$TF_PROJECT_NAME" # Define a variável shell PROJECT_NAME
+              PROJECT_DIR="$TF_PROJECT_DIR_ON_SERVER"
+              DB_DIR=$(dirname "$TF_DB_PATH_ON_SERVER")
+              VENV_DIR="$PROJECT_DIR/venv"
+              STATIC_DIR="$PROJECT_DIR/staticfiles"
+              DB_PATH="$TF_DB_PATH_ON_SERVER"
+              ENV_FILE="$PROJECT_DIR/.env"
+              GUNICORN_SOCKET_FILE="/etc/systemd/system/gunicorn.socket"
+              GUNICORN_SERVICE_FILE="/etc/systemd/system/gunicorn.service"
+
+              # Definindo variáveis que usam $PROJECT_NAME (variável shell)
+              # CORREÇÃO APLICADA AQUI (Linha ~203 original): Usando $$ para escapar $
+              SSM_PARAM_NAME="/$${PROJECT_NAME}/SECRET_KEY"
+              # CORREÇÃO APLICADA AQUI (Linha ~212 original): Usando $$ para escapar $
+              NGINX_CONF_FILE="/etc/nginx/conf.d/$${PROJECT_NAME}.conf"
 
               # 1. Atualizar Sistema e Instalar Dependências Base
-              dnf update -y
-              dnf install git python3 python3-pip -y
-              dnf install nginx -y
-              echo "--- Dependências base instaladas ---"
+              # ... (resto do script como estava até a configuração do Nginx) ...
 
-              # 2. Definir Variáveis e Criar Diretórios *NECESSÁRIOS*
-              PROJECT_DIR="${var.project_dir_on_server}"
-              DB_DIR=$(dirname "${var.db_path_on_server}")
-              VENV_DIR="$PROJECT_DIR/venv"
-              STATIC_DIR="$PROJECT_DIR/staticfiles" # Será criado pelo collectstatic ou pode ser criado aqui
-              DB_PATH="${var.db_path_on_server}"
+              # 9. Configurar Nginx (Reverse Proxy)
+              echo "--- Configurando Nginx ---"
+              # ... (outras configurações do Nginx) ...
 
-              # Criar apenas os diretórios que o git clone NÃO cria
-              mkdir -p $DB_DIR
-              # Opcional: mkdir -p $STATIC_DIR # Ou deixar collectstatic criar
+              rm -f /etc/nginx/conf.d/default.conf # Remove config padrão
+              # Cria o arquivo de configuração Nginx (usando a variável shell $NGINX_CONF_FILE)
+              cat <<EOT > "$NGINX_CONF_FILE"
+              server {
+                  listen 80 default_server;
+                  server_name $INSTANCE_PRIVATE_IP _; # Escute no IP privado
 
-              echo "--- Diretórios base criados (DB, talvez Static) ---"
+                  # CORREÇÃO APLICADA AQUI (Linha ~315 original): Usando $$ para escapar $
+                  access_log /var/log/nginx/$${PROJECT_NAME}_access.log;
+                  # CORREÇÃO APLICADA AQUI (Linha ~316 original): Usando $$ para escapar $
+                  error_log /var/log/nginx/$${PROJECT_NAME}_error.log;
 
-              # 3. Clonar Repositório (Git criará $PROJECT_DIR)
-              git clone "${var.github_repo_url}" $PROJECT_DIR
-              cd $PROJECT_DIR # Entra no diretório recém-clonado
+                  # Servir arquivos estáticos diretamente pelo Nginx
+                  location /static/ {
+                      alias $STATIC_DIR/; # Use a variável shell $STATIC_DIR
+                      expires 7d; # Cache de arquivos estáticos
+                      access_log off; # Opcional: desabilitar log para estáticos
+                  }
 
-              echo "--- Repositório clonado ---"
+                  location = /favicon.ico {
+                      alias $STATIC_DIR/favicon.ico; # Ajuste o caminho se necessário
+                      log_not_found off;
+                      access_log off;
+                  }
 
-              # 3.5 AJUSTAR PERMISSÕES *APÓS* CRIAR/CLONAR
-              # Aplica permissão ao diretório do projeto clonado e ao diretório de dados
-              # Executar como root, então permissão será root:root, mas aplicação (gunicorn) rodará como ec2-user?
-              # Melhor garantir que ec2-user seja o dono para evitar problemas de permissão com a aplicação.
-              chown -R ec2-user:ec2-user $PROJECT_DIR
-              chown -R ec2-user:ec2-user $DB_DIR
-              # Se criou $STATIC_DIR antes: chown -R ec2-user:ec2-user $STATIC_DIR
-
-              echo "--- Permissões ajustadas ---"
-
-              # 4. Criar e Ativar Ambiente Virtual & Instalar Dependências Python
-              # Criar venv como ec2-user para consistência? Ou deixar root criar e app usar?
-              # Mais simples deixar root criar e garantir que app (gunicorn) tenha acesso leitura/escrita onde precisar.
-              python3 -m venv $VENV_DIR
-              # Ativar e instalar (ainda como root)
-              source $VENV_DIR/bin/activate
-              pip install -r requirements.txt
-              pip install gunicorn
-              deactivate # Desativar venv no script principal, será ativado pelo serviço/execução
-
-              echo "--- Ambiente Python configurado ---"
-
-              # 5. Configurar Django (Variáveis de Ambiente e settings.py)
-              echo "AVISO: Configure DEBUG, ALLOWED_HOSTS, SECRET_KEY e DATABASE no settings.py ou via ENV VARS!"
-
-              # 6. Rodar Migrações e Coletar Estáticos
-              # Garante que o arquivo DB exista (se necessário) e tenha permissão
-              touch $DB_PATH
-              chown ec2-user:ec2-user $DB_PATH # Permissão no arquivo DB para ec2-user
-
-              # Executar manage.py usando o python do venv
-              sudo -u ec2-user $VENV_DIR/bin/python manage.py migrate --noinput
-              sudo -u ec2-user $VENV_DIR/bin/python manage.py collectstatic --noinput --clear # collectstatic criará $STATIC_DIR se não existir
-
-              echo "--- Migrations e Collectstatic concluídos ---"
-
-              # 7. Configurar Gunicorn (Ex: via systemd)
-              echo "AVISO: Configure e inicie o serviço Gunicorn via systemd!"
-
-              # 8. Configurar Nginx (Ex: como reverse proxy)
-              echo "AVISO: Configure e inicie o Nginx como reverse proxy!"
-
-              # 9. (Opcional) Configurar Backup do SQLite para S3 via Cron
-              echo "AVISO: Configure um cron job para backup do SQLite para S3!"
+                  # Passar o resto para Gunicorn
+                  location / {
+                      proxy_set_header Host \$host; # Escapar '$' para Nginx interpretar suas variáveis
+                      proxy_set_header X-Real-IP \$remote_addr;
+                      proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                      proxy_set_header X-Forwarded-Proto \$scheme;
+                      proxy_pass http://unix:/run/gunicorn.sock; # Aponta para o socket do Gunicorn
+                  }
+              }
+              EOT
+              # ... (resto da configuração do Nginx e do script user_data) ...
 
               echo "--- Fim do User Data Script ---"
               EOF
+
+  # ... (resto do resource aws_instance) ...
 
   root_block_device {
     volume_size           = 30
@@ -238,12 +279,12 @@ resource "aws_instance" "app_server" {
     Name = var.project_name
   }
 
-  # Para garantir que o SG existe antes de criar a instância
-  depends_on = [aws_security_group.app_sg]
+  # Garante que a role/profile e o SG existem antes de criar a instância
+  depends_on = [aws_security_group.app_sg, aws_iam_instance_profile.ec2_s3_backup_profile]
 }
 
 # === Outputs ===
-# (Mantidos como estavam, mas usando a nova referência 'app_server')
+# (Mantidos)
 
 output "instance_public_ip" {
   description = "Endereco IP Publico da instancia EC2 criada (vazio se associate_public_ip_address = false)"
