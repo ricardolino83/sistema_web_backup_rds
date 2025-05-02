@@ -189,10 +189,10 @@ resource "aws_instance" "app_server" {
               VENV_DIR="$PROJECT_DIR/venv"
               STATIC_DIR="$PROJECT_DIR/staticfiles"
               ENV_FILE="$PROJECT_DIR/.env"
-              SSM_PARAM_NAME="/${PROJECT_NAME}/SECRET_KEY" # Nome do parâmetro SSM
+              SSM_PARAM_NAME="/$${PROJECT_NAME}/SECRET_KEY"
               GUNICORN_SOCKET_FILE="/etc/systemd/system/gunicorn.socket"
               GUNICORN_SERVICE_FILE="/etc/systemd/system/gunicorn.service"
-              NGINX_CONF_FILE="/etc/nginx/conf.d/${PROJECT_NAME}.conf"
+              NGINX_CONF_FILE="/etc/nginx/conf.d/$${PROJECT_NAME}.conf"
 
               # 1. Atualizar Sistema e Instalar Dependências Base
               echo "--- Atualizando sistema e instalando pacotes ---"
@@ -330,12 +330,12 @@ EOT
               # Cria o arquivo de configuração Nginx
               cat <<EOT > "$NGINX_CONF_FILE"
 server {
-    listen 80 default_server; # Escuta na porta 80
-    server_name $INSTANCE_PRIVATE_IP _; # Responde pelo IP privado (ajustar se usar DNS)
+    listen 80 default_server;
+    server_name $INSTANCE_PRIVATE_IP _;
 
     # Logs específicos para este site
-    access_log /var/log/nginx/${PROJECT_NAME}_access.log;
-    error_log /var/log/nginx/${PROJECT_NAME}_error.log;
+    access_log /var/log/nginx/$${PROJECT_NAME}_access.log;
+    error_log /var/log/nginx/$${PROJECT_NAME}_error.log;
 
     # Otimização para servir arquivos estáticos
     location /static/ {
