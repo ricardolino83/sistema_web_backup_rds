@@ -144,7 +144,7 @@ resource "aws_security_group" "app_sg" {
     cidr_blocks = var.allowed_http_cidr
   }
   ingress {
-    description = "HTTPS access (se aplicável)"
+    description = "HTTPS access"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
