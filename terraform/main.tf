@@ -1,3 +1,5 @@
+# main.tf
+
 # Bloco de configuração do Terraform e do provedor AWS
 terraform {
   required_providers {
@@ -7,12 +9,11 @@ terraform {
     }
   }
   # --- Bloco de Configuração do Backend S3 ---
-  # Mantido como estava - Certifique-se que o bucket e a tabela DynamoDB existem
   backend "s3" {
-    bucket         = "do-not-delete-tfstate-sistemabackup-prod-sa-east-1-7bafd8"
-    key            = "sistemabackup/terraform.tfstate" # Pode querer ajustar o path se tiver múltiplos ambientes
-    region         = "sa-east-1"
-    dynamodb_table = "terraform-locks-RicardoLino-prod"
+    bucket         = "do-not-delete-tfstate-sistemabackup-prod-sa-east-1-7bafd8" # Certifique-se que o bucket existe
+    key            = "sistemabackup/terraform.tfstate"
+    region         = "sa-east-1"                                                  # Deve corresponder à var.aws_region
+    dynamodb_table = "terraform-locks-RicardoLino-prod"                           # Certifique-se que a tabela existe
     encrypt        = true
   }
   # ------------------------------------------
@@ -24,8 +25,6 @@ provider "aws" {
 }
 
 # === IAM Role, Policy e Instance Profile para EC2 S3 Access ===
-# (Usa variáveis definidas em variables.tf)
-
 data "aws_iam_policy_document" "ec2_assume_role_policy" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -83,12 +82,9 @@ resource "aws_iam_role_policy_attachment" "s3_backup_policy_attach" {
   policy_arn = aws_iam_policy.s3_backup_policy.arn
 }
 
-# === NOVOS BLOCOS PARA PERMISSÃO SSM ===
-
-# 1. Obter o ID da Conta AWS atual para construir o ARN do parâmetro
+# === Blocos para Permissão SSM ===
 data "aws_caller_identity" "current" {}
 
-# 2. Definir o Documento da Política IAM para ler o parâmetro específico
 data "aws_iam_policy_document" "ssm_parameter_read_policy_document" {
   statement {
     sid    = "ReadSecretKeyParameter"
@@ -96,44 +92,38 @@ data "aws_iam_policy_document" "ssm_parameter_read_policy_document" {
     actions = [
       "ssm:GetParameter"
     ]
-    # ARN do Parâmetro SSM (usando var.project_name para o nome do parâmetro)
     resources = [
+      # Atenção: Garanta que o nome do parâmetro aqui corresponde EXATAMENTE ao criado no SSM
       "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/SECRET_KEY"
     ]
   }
 }
 
-# 3. Criar a Política IAM Gerenciada com base no documento acima
 resource "aws_iam_policy" "ssm_parameter_read_policy" {
   name        = "${var.project_name}-SSM-Parameter-Read-Policy"
-  description = "Permite ler o parâmetro SSM contendo a SECRET_KEY do Django"
+  description = "Permite ler o parâmetro SSM SECRET_KEY do Django"
   policy      = data.aws_iam_policy_document.ssm_parameter_read_policy_document.json
   tags = {
     Name = "${var.project_name}-SSM-Parameter-Read-Policy"
   }
 }
 
-# 4. Anexar a nova Política SSM à Role EC2 existente
 resource "aws_iam_role_policy_attachment" "ssm_parameter_read_policy_attach" {
-  # Anexa à mesma role usada para acesso S3
   role       = aws_iam_role.ec2_s3_backup_role.name
   policy_arn = aws_iam_policy.ssm_parameter_read_policy.arn
 }
+# === Fim Blocos SSM ===
 
-# === FIM DOS NOVOS BLOCOS PARA PERMISSÃO SSM ===
-
-# Instance Profile usa a mesma role, que agora terá ambas as políticas anexadas
+# === Instance Profile ===
 resource "aws_iam_instance_profile" "ec2_s3_backup_profile" {
   name = "${var.project_name}-EC2-S3-Profile"
-  role = aws_iam_role.ec2_s3_backup_role.name
+  role = aws_iam_role.ec2_s3_backup_role.name # A role agora tem ambas as policies (S3 e SSM)
   tags = {
     Name = "${var.project_name}-EC2-S3-Profile"
   }
 }
 
 # === Security Group ===
-# (Usa variáveis definidas em variables.tf)
-
 resource "aws_security_group" "app_sg" {
   name        = "${var.project_name}-sg"
   description = "Permite acesso SSH, HTTP e HTTPS"
@@ -154,11 +144,11 @@ resource "aws_security_group" "app_sg" {
     cidr_blocks = var.allowed_http_cidr
   }
   ingress {
-    description = "HTTPS access"
+    description = "HTTPS access (se aplicável)"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = var.allowed_http_cidr
+    cidr_blocks = var.allowed_http_cidr # Ajustar se necessário
   }
 
   egress {
@@ -173,98 +163,229 @@ resource "aws_security_group" "app_sg" {
 }
 
 # === Instância EC2 ===
-# (Usa variáveis definidas em variables.tf)
-
 resource "aws_instance" "app_server" {
   ami                         = var.ami_id
   instance_type               = var.instance_type
   key_name                    = var.key_name
-  subnet_id                   = var.subnet_id # Garanta que é uma sub-rede com acesso à internet (NAT se IP público for false)
+  subnet_id                   = var.subnet_id
   vpc_security_group_ids      = [aws_security_group.app_sg.id]
-  associate_public_ip_address = false # Confirmado como false
+  associate_public_ip_address = false # Sem IP público direto
 
-  # Associa o Instance Profile que contém a Role com permissões S3 e SSM
-  iam_instance_profile        = aws_iam_instance_profile.ec2_s3_backup_profile.name
+  iam_instance_profile = aws_iam_instance_profile.ec2_s3_backup_profile.name
 
-  # Script User Data (com busca da SECRET_KEY do SSM)
   user_data = <<-EOF
               #!/bin/bash -xe
+              # Log para /var/log/user-data.log E console
               exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 
               echo "--- Iniciando User Data Script ---"
-              # Variáveis Terraform injetadas no script shell
+              # Definição de Variáveis Shell (usando vars do Terraform)
               REGION="${var.aws_region}"
-              TF_PROJECT_NAME="${var.project_name}" # Usando prefixo TF para clareza
-              TF_GITHUB_REPO_URL="${var.github_repo_url}"
-              TF_PROJECT_DIR_ON_SERVER="${var.project_dir_on_server}"
-              TF_DB_PATH_ON_SERVER="${var.db_path_on_server}"
-
-              # Variáveis Shell definidas a partir de outras variáveis
-              # Use nomes distintos para variáveis shell se preferir (ex: BASH_PROJECT_NAME)
-              PROJECT_NAME="$TF_PROJECT_NAME" # Define a variável shell PROJECT_NAME
-              PROJECT_DIR="$TF_PROJECT_DIR_ON_SERVER"
-              DB_DIR=$(dirname "$TF_DB_PATH_ON_SERVER")
+              PROJECT_NAME="${var.project_name}"
+              GITHUB_REPO_URL="${var.github_repo_url}"
+              PROJECT_DIR="${var.project_dir_on_server}"
+              DB_PATH="${var.db_path_on_server}"
+              DB_DIR=$(dirname "$DB_PATH")
               VENV_DIR="$PROJECT_DIR/venv"
               STATIC_DIR="$PROJECT_DIR/staticfiles"
-              DB_PATH="$TF_DB_PATH_ON_SERVER"
               ENV_FILE="$PROJECT_DIR/.env"
+              SSM_PARAM_NAME="/${PROJECT_NAME}/SECRET_KEY" # Nome do parâmetro SSM
               GUNICORN_SOCKET_FILE="/etc/systemd/system/gunicorn.socket"
               GUNICORN_SERVICE_FILE="/etc/systemd/system/gunicorn.service"
-
-              # Definindo variáveis que usam $PROJECT_NAME (variável shell)
-              # CORREÇÃO APLICADA AQUI (Linha ~203 original): Usando $$ para escapar $
-              SSM_PARAM_NAME="/$${PROJECT_NAME}/SECRET_KEY"
-              # CORREÇÃO APLICADA AQUI (Linha ~212 original): Usando $$ para escapar $
-              NGINX_CONF_FILE="/etc/nginx/conf.d/$${PROJECT_NAME}.conf"
+              NGINX_CONF_FILE="/etc/nginx/conf.d/${PROJECT_NAME}.conf"
 
               # 1. Atualizar Sistema e Instalar Dependências Base
-              # ... (resto do script como estava até a configuração do Nginx) ...
+              echo "--- Atualizando sistema e instalando pacotes ---"
+              dnf update -y
+              dnf install git python3 python3-pip nginx aws-cli -y
+              echo "--- Pacotes instalados ---"
+
+              # 2. Criar Diretórios
+              echo "--- Criando diretórios ---"
+              mkdir -p "$DB_DIR"
+              echo "Diretório DB: $DB_DIR"
+              mkdir -p "$PROJECT_DIR" # Garante que o diretório do projeto existe antes do clone
+              echo "Diretório Projeto: $PROJECT_DIR"
+
+              # 3. Clonar Repositório
+              echo "--- Clonando repositório $GITHUB_REPO_URL para $PROJECT_DIR ---"
+              # Verifica se o diretório já tem algo (evita erro em re-runs parciais)
+              if [ -d "$PROJECT_DIR/.git" ]; then
+                echo "Diretório $PROJECT_DIR já existe e parece ser um repo git. Pulando clone."
+                cd "$PROJECT_DIR"
+                # Poderia adicionar um 'git pull' aqui se desejasse atualizar
+              else
+                git clone "$GITHUB_REPO_URL" "$PROJECT_DIR"
+                cd "$PROJECT_DIR"
+              fi
+              echo "--- Repositório clonado (ou existente) ---"
+
+              # 4. Ajustar Permissões Iniciais
+              echo "--- Ajustando permissões para ec2-user ---"
+              # Garante que o ec2-user seja dono de tudo após o clone/pull
+              chown -R ec2-user:ec2-user "$PROJECT_DIR"
+              chown -R ec2-user:ec2-user "$DB_DIR"
+              echo "--- Permissões ajustadas ---"
+
+              # 5. Criar e Ativar Ambiente Virtual & Instalar Dependências Python
+              echo "--- Configurando ambiente Python em $VENV_DIR ---"
+              # Criar venv como ec2-user
+              sudo -u ec2-user python3 -m venv "$VENV_DIR"
+              # Instalar dependências (script user-data roda como root)
+              "$VENV_DIR/bin/pip" install --upgrade pip
+              "$VENV_DIR/bin/pip" install -r requirements.txt
+              echo "--- Ambiente Python configurado ---"
+
+              # 6. Criar Arquivo de Ambiente (.env) - Buscando Secret Key do SSM
+              echo "--- Criando arquivo .env em $ENV_FILE ---"
+              echo "Buscando parâmetro: $SSM_PARAM_NAME na região $REGION"
+              # Tenta buscar a chave, redireciona erro para log se falhar
+              SECRET_KEY_VALUE=$(aws ssm get-parameter --name "$SSM_PARAM_NAME" --with-decryption --query Parameter.Value --output text --region "$REGION" 2>/var/log/ssm_error.log)
+              if [ -z "$SECRET_KEY_VALUE" ]; then
+                  echo "ERRO CRÍTICO: Falha ao buscar SECRET_KEY do SSM Parameter Store ($SSM_PARAM_NAME)!"
+                  echo "Verifique /var/log/ssm_error.log para detalhes."
+                  echo "Verifique nome do parâmetro, região ($REGION) e permissões IAM da instância."
+                  exit 1
+              fi
+              INSTANCE_PRIVATE_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
+              echo "IP Privado da Instância: $INSTANCE_PRIVATE_IP"
+
+              cat <<EOT > "$ENV_FILE"
+SECRET_KEY='$SECRET_KEY_VALUE'
+DEBUG=False
+ALLOWED_HOSTS='$INSTANCE_PRIVATE_IP' # Considere adicionar outros hosts se necessário (e.g., DNS)
+DATABASE_URL='sqlite:///$DB_PATH'
+STATIC_ROOT='$STATIC_DIR'
+EOT
+              chown ec2-user:ec2-user "$ENV_FILE"
+              chmod 600 "$ENV_FILE" # Permissões restritas para o .env
+              echo "--- Arquivo .env criado ---"
+
+              # 7. Rodar Migrações e Coletar Estáticos (como ec2-user)
+              echo "--- Executando migrate e collectstatic ---"
+              sudo -u ec2-user touch "$DB_PATH" # Garante que o arquivo existe
+              sudo -u ec2-user "$VENV_DIR/bin/python" manage.py migrate --noinput
+              sudo -u ec2-user "$VENV_DIR/bin/python" manage.py collectstatic --noinput --clear
+              # Garante permissão na pasta staticfiles após collectstatic
+              chown -R ec2-user:ec2-user "$STATIC_DIR"
+              echo "--- Migrations e Collectstatic concluídos ---"
+
+              # 8. Configurar Gunicorn (Systemd Socket + Service)
+              echo "--- Configurando Gunicorn systemd ---"
+              # Gunicorn Socket
+              cat <<EOT > "$GUNICORN_SOCKET_FILE"
+[Unit]
+Description=gunicorn socket for $PROJECT_NAME
+
+[Socket]
+ListenStream=/run/gunicorn.sock
+SocketUser=ec2-user
+# --- CORREÇÃO APLICADA AQUI ---
+SocketGroup=nginx   # Nginx precisa de acesso ao socket
+SocketMode=660      # Permite leitura/escrita para user e group
+# --- FIM DA CORREÇÃO ---
+
+[Install]
+WantedBy=sockets.target
+EOT
+
+              # Gunicorn Service
+              cat <<EOT > "$GUNICORN_SERVICE_FILE"
+[Unit]
+Description=gunicorn daemon for $PROJECT_NAME
+Requires=gunicorn.socket # Garante que o socket esteja pronto
+After=network.target
+
+[Service]
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=$PROJECT_DIR
+EnvironmentFile=$ENV_FILE # Carrega variáveis do .env
+# ExecStart aponta para o gunicorn dentro do venv
+# Substitua 'myproject.wsgi:application' pelo caminho correto se seu projeto não for 'myproject'
+ExecStart=$VENV_DIR/bin/gunicorn \\
+          --access-logfile - \\
+          --error-logfile - \\
+          --workers 3 \\
+          --bind unix:/run/gunicorn.sock \\
+          myproject.wsgi:application
+Restart=always # Reinicia se falhar
+RestartSec=5   # Espera 5s antes de reiniciar
+
+[Install]
+WantedBy=multi-user.target
+EOT
+
+              # Define permissões nos arquivos de configuração do systemd
+              chmod 644 "$GUNICORN_SOCKET_FILE"
+              chmod 644 "$GUNICORN_SERVICE_FILE"
+              echo "--- Arquivos Gunicorn systemd criados ---"
 
               # 9. Configurar Nginx (Reverse Proxy)
               echo "--- Configurando Nginx ---"
-              # ... (outras configurações do Nginx) ...
+              # Remove configuração padrão para evitar conflitos
+              rm -f /etc/nginx/sites-enabled/default # Comum em Ubuntu/Debian
+              rm -f /etc/nginx/conf.d/default.conf  # Comum em CentOS/Fedora/Amazon Linux
 
-              rm -f /etc/nginx/conf.d/default.conf # Remove config padrão
-              # Cria o arquivo de configuração Nginx (usando a variável shell $NGINX_CONF_FILE)
+              # Cria o arquivo de configuração Nginx
               cat <<EOT > "$NGINX_CONF_FILE"
-              server {
-                  listen 80 default_server;
-                  server_name $INSTANCE_PRIVATE_IP _; # Escute no IP privado
+server {
+    listen 80 default_server; # Escuta na porta 80
+    server_name $INSTANCE_PRIVATE_IP _; # Responde pelo IP privado (ajustar se usar DNS)
 
-                  # CORREÇÃO APLICADA AQUI (Linha ~315 original): Usando $$ para escapar $
-                  access_log /var/log/nginx/$${PROJECT_NAME}_access.log;
-                  # CORREÇÃO APLICADA AQUI (Linha ~316 original): Usando $$ para escapar $
-                  error_log /var/log/nginx/$${PROJECT_NAME}_error.log;
+    # Logs específicos para este site
+    access_log /var/log/nginx/${PROJECT_NAME}_access.log;
+    error_log /var/log/nginx/${PROJECT_NAME}_error.log;
 
-                  # Servir arquivos estáticos diretamente pelo Nginx
-                  location /static/ {
-                      alias $STATIC_DIR/; # Use a variável shell $STATIC_DIR
-                      expires 7d; # Cache de arquivos estáticos
-                      access_log off; # Opcional: desabilitar log para estáticos
-                  }
+    # Otimização para servir arquivos estáticos
+    location /static/ {
+        alias $STATIC_DIR/; # Caminho definido no .env e collectstatic
+        expires 7d;        # Cache no browser por 7 dias
+        access_log off;    # Não logar acesso a estáticos (opcional)
+    }
 
-                  location = /favicon.ico {
-                      alias $STATIC_DIR/favicon.ico; # Ajuste o caminho se necessário
-                      log_not_found off;
-                      access_log off;
-                  }
+    # Tratar favicon separadamente (opcional)
+    location = /favicon.ico {
+        alias $STATIC_DIR/favicon.ico; # Ajuste se necessário
+        log_not_found off;
+        access_log off;
+    }
 
-                  # Passar o resto para Gunicorn
-                  location / {
-                      proxy_set_header Host \$host; # Escapar '$' para Nginx interpretar suas variáveis
-                      proxy_set_header X-Real-IP \$remote_addr;
-                      proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                      proxy_set_header X-Forwarded-Proto \$scheme;
-                      proxy_pass http://unix:/run/gunicorn.sock; # Aponta para o socket do Gunicorn
-                  }
-              }
-              EOT
-              # ... (resto da configuração do Nginx e do script user_data) ...
+    # Passar todas as outras requisições para o Gunicorn via socket
+    location / {
+        proxy_set_header Host \$host; # Envia o Host header original
+        proxy_set_header X-Real-IP \$remote_addr; # Envia o IP real do cliente
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for; # Lista de IPs (proxy)
+        proxy_set_header X-Forwarded-Proto \$scheme; # http ou https
+        # Conecta ao socket do Gunicorn
+        proxy_pass http://unix:/run/gunicorn.sock;
+    }
+}
+EOT
+              # Define permissões no arquivo de configuração do Nginx
+              chmod 644 "$NGINX_CONF_FILE"
+              echo "--- Validando configuração Nginx ---"
+              nginx -t # Testa a sintaxe da configuração Nginx
+              if [ $? -ne 0 ]; then
+                  echo "ERRO CRÍTICO: Configuração do Nginx inválida! Verifique $NGINX_CONF_FILE e os logs do Nginx."
+                  exit 1 # Aborta o script se a config for inválida
+              fi
+              echo "--- Configuração Nginx criada e validada ---"
+
+              # 10. Habilitar e Iniciar Serviços systemd
+              echo "--- Habilitando e iniciando serviços systemd ---"
+              systemctl daemon-reload # Recarrega configs do systemd
+              systemctl enable --now gunicorn.socket # Habilita e inicia o socket Gunicorn
+              systemctl enable --now gunicorn.service # Habilita e inicia o serviço Gunicorn
+              systemctl enable nginx # Habilita Nginx para iniciar no boot
+              systemctl restart nginx # Reinicia Nginx para aplicar nova config e garantir que está rodando
+              echo "--- Serviços Gunicorn e Nginx configurados e iniciados ---"
+
+              # 11. (Opcional) Configurar Backup do SQLite para S3 via Cron
+              echo "AVISO: Backup do SQLite via cron não configurado neste script."
 
               echo "--- Fim do User Data Script ---"
               EOF
-
-  # ... (resto do resource aws_instance) ...
 
   root_block_device {
     volume_size           = 30
@@ -284,22 +405,14 @@ resource "aws_instance" "app_server" {
 }
 
 # === Outputs ===
-# (Mantidos)
-
-output "instance_public_ip" {
-  description = "Endereco IP Publico da instancia EC2 criada (vazio se associate_public_ip_address = false)"
-  value       = aws_instance.app_server.public_ip
-}
-
-output "instance_public_dns" {
-  description = "DNS Publico da instancia EC2 criada (vazio se associate_public_ip_address = false)"
-  value       = aws_instance.app_server.public_dns
-}
-
 output "instance_private_ip" {
   description = "Endereco IP Privado da instancia EC2 criada"
   value       = aws_instance.app_server.private_ip
 }
+
+# Removidos outputs de IP público/DNS pois associate_public_ip_address = false
+# output "instance_public_ip" { ... }
+# output "instance_public_dns" { ... }
 
 output "instance_iam_role_name" {
   description = "Nome da IAM Role associada a instancia EC2"
